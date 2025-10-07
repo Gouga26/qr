@@ -1,0 +1,82 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Accès requis</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 520px; margin: 10vh auto; padding: 0 16px; }
+  form { display: grid; gap: 12px; }
+  input[type=password] { padding: 10px; font-size: 16px; width: 100%; }
+  button { padding: 10px 14px; font-size: 16px; cursor: pointer; }
+  .hint { color: #666; font-size: 14px; }
+  .err { color: #b00020; }
+</style>
+
+<h1>Accès</h1>
+<p class="hint">Entrez le mot de passe pour continuer.</p>
+
+<form id="f" autocomplete="off">
+  <label>Mot de passe
+    <input id="pwd" type="password" inputmode="text" autocomplete="current-password" required autofocus>
+  </label>
+  <label><input type="checkbox" id="remember"> Mémoriser sur cet appareil</label>
+  <button type="submit">Entrer</button>
+  <p id="msg" class="err" role="status" aria-live="polite"></p>
+</form>
+
+<script>
+  // 1) ADAPTE CES DEUX CONSTANTES:
+  const DESTINATION_URL = "https://www.lefigaro.fr/"; // <- la vraie destination
+  const HASH_HEX = "33dc0ba86008f4434bd43d050df9022209367483c1eef5280b25da861c32f6ad";            // <- le hash de ton mot de passe
+
+  // 2) Option: limite brute-force très simple
+  const PATH = location.pathname; // clé par dossier
+  const okSessionKey = "ok:" + PATH;            // sessionStorage = expire à la fermeture
+  const okPersistentKey = "ok-global";          // localStorage = "se souvenir de moi"
+  const triesKey = "tries:" + PATH;
+  const lockKey = "lock-until:" + PATH;
+
+  if (localStorage.getItem(okPersistentKey) || sessionStorage.getItem(okSessionKey)) {
+    location.replace(DESTINATION_URL);
+  }
+
+  async function sha256Hex(text) {
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+    return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
+  }
+
+  const form = document.getElementById("f");
+  const msg = document.getElementById("msg");
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    msg.textContent = "";
+    const now = Date.now();
+    const lockUntil = parseInt(sessionStorage.getItem(lockKey) || "0", 10);
+    if (now < lockUntil) {
+      msg.textContent = "Trop d'essais. Réessayez dans quelques secondes.";
+      return;
+    }
+
+    const pwd = document.getElementById("pwd").value;
+    const remember = document.getElementById("remember").checked;
+
+    const hash = await sha256Hex(pwd);
+    if (hash === HASH_HEX) {
+      (remember ? localStorage : sessionStorage)
+        .setItem(remember ? okPersistentKey : okSessionKey, "1");
+      sessionStorage.removeItem(triesKey);
+      sessionStorage.removeItem(lockKey);
+      location.replace(DESTINATION_URL);
+    } else {
+      const tries = 1 + parseInt(sessionStorage.getItem(triesKey) || "0", 10);
+      sessionStorage.setItem(triesKey, String(tries));
+      if (tries >= 5) {
+        sessionStorage.setItem(lockKey, String(now + 30_000)); // blocage 30 s
+        sessionStorage.setItem(triesKey, "0");
+        msg.textContent = "Mot de passe incorrect. Verrouillage 30 s.";
+      } else {
+        msg.textContent = "Mot de passe incorrect.";
+      }
+    }
+  });
+</script>
